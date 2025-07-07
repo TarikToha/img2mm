@@ -1,13 +1,15 @@
-import os
-import requests
-import sys
 import copy
-from tqdm import tqdm
+import os
+import sys
+
+import requests
 import torch
-from transformers import AutoTokenizer, CLIPTextModel
 from diffusers import AutoencoderKL, UNet2DConditionModel
 from diffusers.utils.peft_utils import set_weights_and_activate_adapters
 from peft import LoraConfig
+from tqdm import tqdm
+from transformers import AutoTokenizer, CLIPTextModel
+
 p = "src/"
 sys.path.append(p)
 from model import make_1step_sched, my_vae_encoder_fwd, my_vae_decoder_fwd
@@ -27,7 +29,8 @@ class TwinConv(torch.nn.Module):
 
 
 class Pix2Pix_Turbo(torch.nn.Module):
-    def __init__(self, pretrained_name=None, pretrained_path=None, ckpt_folder="checkpoints", lora_rank_unet=8, lora_rank_vae=4):
+    def __init__(self, pretrained_name=None, pretrained_path=None, ckpt_folder="checkpoints", lora_rank_unet=8,
+                 lora_rank_vae=4):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained("stabilityai/sd-turbo", subfolder="tokenizer")
         self.text_encoder = CLIPTextModel.from_pretrained("stabilityai/sd-turbo", subfolder="text_encoder").cuda()
@@ -54,18 +57,23 @@ class Pix2Pix_Turbo(torch.nn.Module):
                 total_size_in_bytes = int(response.headers.get('content-length', 0))
                 block_size = 1024  # 1 Kibibyte
                 progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
+
                 with open(outf, 'wb') as file:
                     for data in response.iter_content(block_size):
                         progress_bar.update(len(data))
                         file.write(data)
                 progress_bar.close()
+
                 if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
                     print("ERROR, something went wrong")
                 print(f"Downloaded successfully to {outf}")
+
             p_ckpt = outf
             sd = torch.load(p_ckpt, map_location="cpu")
-            unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian", target_modules=sd["unet_lora_target_modules"])
-            vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian", target_modules=sd["vae_lora_target_modules"])
+            unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian",
+                                          target_modules=sd["unet_lora_target_modules"])
+            vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian",
+                                         target_modules=sd["vae_lora_target_modules"])
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
             _sd_vae = vae.state_dict()
             for k in sd["state_dict_vae"]:
@@ -100,8 +108,10 @@ class Pix2Pix_Turbo(torch.nn.Module):
             convin_pretrained = copy.deepcopy(unet.conv_in)
             unet.conv_in = TwinConv(convin_pretrained, unet.conv_in)
             sd = torch.load(p_ckpt, map_location="cpu")
-            unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian", target_modules=sd["unet_lora_target_modules"])
-            vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian", target_modules=sd["vae_lora_target_modules"])
+            unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian",
+                                          target_modules=sd["unet_lora_target_modules"])
+            vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian",
+                                         target_modules=sd["vae_lora_target_modules"])
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
             _sd_vae = vae.state_dict()
             for k in sd["state_dict_vae"]:
@@ -115,8 +125,10 @@ class Pix2Pix_Turbo(torch.nn.Module):
 
         elif pretrained_path is not None:
             sd = torch.load(pretrained_path, map_location="cpu")
-            unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian", target_modules=sd["unet_lora_target_modules"])
-            vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian", target_modules=sd["vae_lora_target_modules"])
+            unet_lora_config = LoraConfig(r=sd["rank_unet"], init_lora_weights="gaussian",
+                                          target_modules=sd["unet_lora_target_modules"])
+            vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian",
+                                         target_modules=sd["vae_lora_target_modules"])
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
             _sd_vae = vae.state_dict()
             for k in sd["state_dict_vae"]:
@@ -135,19 +147,19 @@ class Pix2Pix_Turbo(torch.nn.Module):
             torch.nn.init.constant_(vae.decoder.skip_conv_3.weight, 1e-5)
             torch.nn.init.constant_(vae.decoder.skip_conv_4.weight, 1e-5)
             target_modules_vae = ["conv1", "conv2", "conv_in", "conv_shortcut", "conv", "conv_out",
-                "skip_conv_1", "skip_conv_2", "skip_conv_3", "skip_conv_4",
-                "to_k", "to_q", "to_v", "to_out.0",
-            ]
+                                  "skip_conv_1", "skip_conv_2", "skip_conv_3", "skip_conv_4",
+                                  "to_k", "to_q", "to_v", "to_out.0",
+                                  ]
             vae_lora_config = LoraConfig(r=lora_rank_vae, init_lora_weights="gaussian",
-                target_modules=target_modules_vae)
+                                         target_modules=target_modules_vae)
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
             target_modules_unet = [
                 "to_k", "to_q", "to_v", "to_out.0", "conv", "conv1", "conv2", "conv_shortcut", "conv_out",
                 "proj_in", "proj_out", "ff.net.2", "ff.net.0.proj"
             ]
             unet_lora_config = LoraConfig(r=lora_rank_unet, init_lora_weights="gaussian",
-                target_modules=target_modules_unet
-            )
+                                          target_modules=target_modules_unet
+                                          )
             unet.add_adapter(unet_lora_config)
             self.lora_rank_unet = lora_rank_unet
             self.lora_rank_vae = lora_rank_vae
@@ -159,7 +171,7 @@ class Pix2Pix_Turbo(torch.nn.Module):
         vae.to("cuda")
         self.unet, self.vae = unet, vae
         self.vae.decoder.gamma = 1
-        self.timesteps = torch.tensor([999], device="cuda").long()
+        self.timesteps = torch.tensor([99], device="cuda").long()
         self.text_encoder.requires_grad_(False)
 
     def set_eval(self):
@@ -194,9 +206,10 @@ class Pix2Pix_Turbo(torch.nn.Module):
             caption_enc = self.text_encoder(caption_tokens)[0]
         else:
             caption_enc = self.text_encoder(prompt_tokens)[0]
+
         if deterministic:
             encoded_control = self.vae.encode(c_t).latent_dist.sample() * self.vae.config.scaling_factor
-            model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc,).sample
+            model_pred = self.unet(encoded_control, self.timesteps, encoder_hidden_states=caption_enc, ).sample
             x_denoised = self.sched.step(model_pred, self.timesteps, encoded_control, return_dict=True).prev_sample
             x_denoised = x_denoised.to(model_pred.dtype)
             self.vae.decoder.incoming_skip_acts = self.vae.encoder.current_down_blocks
@@ -209,13 +222,14 @@ class Pix2Pix_Turbo(torch.nn.Module):
             # combine the input and noise
             unet_input = encoded_control * r + noise_map * (1 - r)
             self.unet.conv_in.r = r
-            unet_output = self.unet(unet_input, self.timesteps, encoder_hidden_states=caption_enc,).sample
+            unet_output = self.unet(unet_input, self.timesteps, encoder_hidden_states=caption_enc, ).sample
             self.unet.conv_in.r = None
             x_denoised = self.sched.step(unet_output, self.timesteps, unet_input, return_dict=True).prev_sample
             x_denoised = x_denoised.to(unet_output.dtype)
             self.vae.decoder.incoming_skip_acts = self.vae.encoder.current_down_blocks
             self.vae.decoder.gamma = r
             output_image = (self.vae.decode(x_denoised / self.vae.config.scaling_factor).sample).clamp(-1, 1)
+
         return output_image
 
     def save_model(self, outf):
